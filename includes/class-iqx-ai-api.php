@@ -111,6 +111,91 @@ class IQX_AI_API {
     }
 
     /**
+     * Rewrite an article title for SEO optimization using the API
+     *
+     * @since    1.0.0
+     * @param    string    $title     The original article title
+     * @param    string    $content   The article content for context
+     * @return   string|bool          The rewritten SEO title or false on failure
+     */
+    public function rewrite_seo_title($title, $content = '') {
+        // Get API settings
+        $settings = get_option('iqx_ai_settings', array());
+        
+        if (empty($settings['api_token'])) {
+            $this->log_message('API token is not set');
+            return false;
+        }
+        
+        // Prepare the API request
+        $model = !empty($settings['model']) ? $settings['model'] : 'gpt-4o';
+        
+        // Use a content sample for context if it's long
+        $content_sample = substr($content, 0, 500) . (strlen($content) > 500 ? '...' : '');
+        
+        // Create a prompt that will instruct the AI to rewrite the title
+        $system_prompt = "Bạn là chuyên gia SEO hàng đầu. Nhiệm vụ của bạn là viết lại tiêu đề bài viết sao cho tối ưu SEO nhất, thu hút người đọc, nhưng vẫn giữ được ý nghĩa gốc. Hãy tuân thủ các nguyên tắc sau:\n";
+        $system_prompt .= "1. Sử dụng từ khóa chính ở đầu tiêu đề nếu có thể.\n";
+        $system_prompt .= "2. Giữ độ dài tiêu đề từ 50-60 ký tự.\n";
+        $system_prompt .= "3. Dùng từ ngữ gây tò mò, tạo cảm giác khẩn cấp, hoặc đặt câu hỏi.\n";
+        $system_prompt .= "4. Tiêu đề phải rõ ràng về nội dung chính của bài viết.\n";
+        $system_prompt .= "5. Tránh từ ngữ phóng đại quá mức hoặc clickbait không liên quan.\n";
+        $system_prompt .= "6. Chỉ trả về tiêu đề mới, không thêm giải thích hay định dạng HTML.\n";
+        
+        // Create the request payload
+        $payload = array(
+            'model' => $model,
+            'messages' => array(
+                array(
+                    'role' => 'system',
+                    'content' => $system_prompt
+                ),
+                array(
+                    'role' => 'user',
+                    'content' => "Viết lại tiêu đề bài viết này sao cho tối ưu SEO nhất. Tiêu đề gốc: \"{$title}\"\n\nĐoạn nội dung mẫu của bài: \"{$content_sample}\"\n\nChỉ trả về tiêu đề mới."
+                )
+            ),
+            'temperature' => 0.7,
+            'max_tokens' => 100
+        );
+        
+        // Make the API request
+        $response = wp_remote_post(
+            $this->api_endpoint,
+            array(
+                'headers' => array(
+                    'Content-Type' => 'application/json',
+                    'Authorization' => 'Bearer ' . $settings['api_token'],
+                ),
+                'body' => json_encode($payload),
+                'timeout' => 30,
+            )
+        );
+        
+        // Check for errors
+        if (is_wp_error($response)) {
+            $this->log_message('API request error in SEO title generation: ' . $response->get_error_message());
+            return false;
+        }
+        
+        // Parse the response
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        // Check if we have a valid response
+        if (empty($data) || !isset($data['choices'][0]['message']['content'])) {
+            $this->log_message('Invalid API response for SEO title: ' . $body);
+            return false;
+        }
+        
+        // Extract the rewritten title and clean it up
+        $seo_title = trim($data['choices'][0]['message']['content']);
+        $seo_title = str_replace(array('"', '"', '"'), '', $seo_title); // Remove quotes
+        
+        return $seo_title;
+    }
+
+    /**
      * Log a message to the plugin's log file
      *
      * @since    1.0.0

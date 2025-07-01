@@ -50,6 +50,7 @@ class IQX_AI_DB {
             created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
             processed_at datetime NULL,
             wp_post_id bigint(20) NULL,
+            seo_title text NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY article_url (article_url)
         ) $charset_collate;";
@@ -110,9 +111,10 @@ class IQX_AI_DB {
      * @param    int       $id              The article ID
      * @param    string    $rewritten       The rewritten content
      * @param    int       $wp_post_id      The WordPress post ID (optional)
+     * @param    string    $seo_title       The SEO optimized title (optional)
      * @return   bool                       True on success, false on failure
      */
-    public function update_article($id, $rewritten, $wp_post_id = null) {
+    public function update_article($id, $rewritten, $wp_post_id = null, $seo_title = null) {
         global $wpdb;
         
         $data = array(
@@ -125,11 +127,15 @@ class IQX_AI_DB {
             $data['wp_post_id'] = $wp_post_id;
         }
         
+        if ($seo_title) {
+            $data['seo_title'] = $seo_title;
+        }
+        
         return $wpdb->update(
             $this->table_name,
             $data,
             array('id' => $id),
-            array('%s', '%s', '%s', '%d'),
+            array('%s', '%s', '%s', '%d', '%s'),
             array('%d')
         );
     }
@@ -183,17 +189,31 @@ class IQX_AI_DB {
     }
 
     /**
-     * Delete all data from the plugin's database table
+     * Delete all scraped articles from the database
      *
      * @since    1.0.0
-     * @return   bool     True on success, false on failure
+     * @param    bool    $delete_posts    Whether to also delete associated WordPress posts
+     * @return   int                     Number of records deleted
      */
-    public function delete_all_data() {
+    public function delete_all_articles($delete_posts = false) {
         global $wpdb;
         
-        // Truncate the table to remove all data
+        // First, get all the WordPress post IDs if we need to delete them too
+        if ($delete_posts) {
+            $post_ids = $wpdb->get_col("SELECT wp_post_id FROM {$this->table_name} WHERE wp_post_id IS NOT NULL");
+            
+            // Delete all associated WordPress posts
+            if (!empty($post_ids)) {
+                foreach ($post_ids as $post_id) {
+                    wp_delete_post($post_id, true); // true = force delete, bypass trash
+                }
+            }
+        }
+        
+        // Delete all records from the plugin's database table
         $result = $wpdb->query("TRUNCATE TABLE {$this->table_name}");
         
-        return $result !== false;
+        // Return the number of deleted records, or 0 if there was an error
+        return $result !== false ? $wpdb->get_var("SELECT ROW_COUNT()") : 0;
     }
 } 

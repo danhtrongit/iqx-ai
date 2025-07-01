@@ -44,6 +44,7 @@ class IQX_AI_Admin {
         add_action('wp_ajax_iqx_ai_run_scraper', array($this, 'ajax_run_scraper'));
         add_action('wp_ajax_iqx_ai_rewrite_article', array($this, 'ajax_rewrite_article'));
         add_action('wp_ajax_iqx_ai_create_post', array($this, 'ajax_create_post'));
+        add_action('wp_ajax_iqx_ai_rewrite_seo_title', array($this, 'ajax_rewrite_seo_title'));
         add_action('wp_ajax_iqx_ai_delete_all_data', array($this, 'ajax_delete_all_data'));
     }
 
@@ -82,6 +83,16 @@ class IQX_AI_Admin {
             'manage_options',
             'iqx-ai-articles',
             array($this, 'display_articles_page')
+        );
+        
+        // Bulk actions submenu
+        add_submenu_page(
+            'iqx-ai',
+            'Thao tác hàng loạt',
+            'Thao tác hàng loạt',
+            'manage_options',
+            'iqx-ai-bulk-actions',
+            array($this, 'display_bulk_actions_page')
         );
         
         // Settings submenu
@@ -265,30 +276,12 @@ class IQX_AI_Admin {
                     <h2>Hành động</h2>
                     <button id="iqx-ai-run-scraper" class="button button-primary">Chạy cào dữ liệu ngay</button>
                     <span id="iqx-ai-scraper-status"></span>
-                    
-                    <div class="iqx-ai-danger-actions" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
-                        <h3 style="color: #dc3545;">Hành động nguy hiểm</h3>
-                        <button id="iqx-ai-dashboard-delete-data" class="button" style="background-color: #dc3545; color: white; border-color: #dc3545;">Xóa toàn bộ dữ liệu</button>
-                        <p><small>Thao tác này sẽ xóa toàn bộ dữ liệu đã cào và log. Không thể hoàn tác!</small></p>
-                    </div>
                 </div>
                 
                 <div class="iqx-ai-recent">
                     <h2>Bài viết gần đây</h2>
                     <?php $this->display_recent_articles(5); ?>
                     <p><a href="<?php echo admin_url('admin.php?page=iqx-ai-articles'); ?>" class="button">Xem tất cả bài viết</a></p>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Modal xác nhận xóa -->
-        <div id="iqx-ai-delete-modal" style="display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
-            <div style="background-color: #fff; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 400px; border-radius: 5px;">
-                <h3>Xác nhận xóa dữ liệu</h3>
-                <p>Bạn có chắc chắn muốn xóa toàn bộ dữ liệu đã cào và log? Thao tác này không thể hoàn tác!</p>
-                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-                    <button id="iqx-ai-cancel-delete" class="button">Hủy</button>
-                    <button id="iqx-ai-confirm-delete" class="button" style="background-color: #dc3545; color: white; border-color: #dc3545;">Xác nhận xóa</button>
                 </div>
             </div>
         </div>
@@ -334,10 +327,6 @@ class IQX_AI_Admin {
             
             .iqx-ai-actions {
                 margin: 20px 0;
-                background: #fff;
-                border: 1px solid #ccc;
-                padding: 15px;
-                border-radius: 5px;
             }
             
             .iqx-ai-recent {
@@ -351,7 +340,6 @@ class IQX_AI_Admin {
         
         <script>
             jQuery(document).ready(function($) {
-                // Chạy cào dữ liệu
                 $('#iqx-ai-run-scraper').on('click', function() {
                     var button = $(this);
                     var status = $('#iqx-ai-scraper-status');
@@ -381,56 +369,6 @@ class IQX_AI_Admin {
                         },
                         complete: function() {
                             button.prop('disabled', false);
-                        }
-                    });
-                });
-                
-                // Xóa toàn bộ dữ liệu
-                $('#iqx-ai-dashboard-delete-data').on('click', function() {
-                    $('#iqx-ai-delete-modal').show();
-                });
-                
-                // Đóng modal khi nhấn nút hủy
-                $('#iqx-ai-cancel-delete').on('click', function() {
-                    $('#iqx-ai-delete-modal').hide();
-                });
-                
-                // Xử lý khi nhấn nút xác nhận xóa
-                $('#iqx-ai-confirm-delete').on('click', function() {
-                    // Hiển thị thông báo đang xử lý
-                    $(this).prop('disabled', true).text('Đang xóa...');
-                    
-                    // Gửi AJAX request để xóa dữ liệu
-                    $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'iqx_ai_delete_all_data',
-                            nonce: '<?php echo wp_create_nonce('iqx_ai_delete_all_data'); ?>'
-                        },
-                        success: function(response) {
-                            $('#iqx-ai-delete-modal').hide();
-                            
-                            if (response.success) {
-                                // Hiển thị thông báo thành công và reload trang
-                                alert(response.data);
-                                location.reload();
-                            } else {
-                                // Hiển thị thông báo lỗi
-                                alert('Lỗi: ' + response.data);
-                            }
-                            
-                            // Reset nút xác nhận
-                            $('#iqx-ai-confirm-delete').prop('disabled', false).text('Xác nhận xóa');
-                        },
-                        error: function() {
-                            $('#iqx-ai-delete-modal').hide();
-                            
-                            // Hiển thị thông báo lỗi
-                            alert('Có lỗi xảy ra khi kết nối đến máy chủ');
-                            
-                            // Reset nút xác nhận
-                            $('#iqx-ai-confirm-delete').prop('disabled', false).text('Xác nhận xóa');
                         }
                     });
                 });
@@ -545,8 +483,11 @@ class IQX_AI_Admin {
                                     
                                     <?php if ($article['status'] === 'pending') : ?>
                                         <button class="button button-small iqx-ai-rewrite" data-id="<?php echo esc_attr($article['id']); ?>">Viết lại</button>
-                                    <?php elseif ($article['status'] === 'completed' && empty($article['wp_post_id'])) : ?>
-                                        <button class="button button-small iqx-ai-create-post" data-id="<?php echo esc_attr($article['id']); ?>">Tạo bài viết</button>
+                                    <?php elseif ($article['status'] === 'completed') : ?>
+                                        <?php if (empty($article['wp_post_id'])) : ?>
+                                            <button class="button button-small iqx-ai-create-post" data-id="<?php echo esc_attr($article['id']); ?>">Tạo bài viết</button>
+                                        <?php endif; ?>
+                                        <button class="button button-small iqx-ai-rewrite-seo-title" data-id="<?php echo esc_attr($article['id']); ?>">Viết lại tiêu đề SEO</button>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -637,6 +578,39 @@ class IQX_AI_Admin {
                             alert('Đã xảy ra lỗi máy chủ.');
                             button.prop('disabled', false);
                             button.text('Tạo bài viết');
+                        }
+                    });
+                });
+                
+                $('.iqx-ai-rewrite-seo-title').on('click', function() {
+                    var button = $(this);
+                    var id = button.data('id');
+                    
+                    button.prop('disabled', true);
+                    button.text('Đang xử lý...');
+                    
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'iqx_ai_rewrite_seo_title',
+                            id: id,
+                            nonce: '<?php echo wp_create_nonce('iqx_ai_rewrite_seo_title'); ?>'
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                alert('Thành công: ' + response.data.message + '\nTiêu đề mới: ' + response.data.new_title);
+                                location.reload();
+                            } else {
+                                alert('Lỗi: ' + response.data);
+                                button.prop('disabled', false);
+                                button.text('Viết lại tiêu đề SEO');
+                            }
+                        },
+                        error: function() {
+                            alert('Đã xảy ra lỗi máy chủ.');
+                            button.prop('disabled', false);
+                            button.text('Viết lại tiêu đề SEO');
                         }
                     });
                 });
@@ -789,81 +763,6 @@ class IQX_AI_Admin {
                 </div>
                 <?php endif; ?>
             </form>
-            
-            <!-- Phần xóa dữ liệu -->
-            <div class="iqx-ai-danger-zone" style="margin-top: 50px; border: 1px solid #dc3545; padding: 20px; border-radius: 5px;">
-                <h2 style="color: #dc3545;">Khu vực nguy hiểm</h2>
-                <p>Xóa toàn bộ dữ liệu đã cào và log. <strong>Thao tác này không thể hoàn tác!</strong></p>
-                <button id="iqx-ai-delete-data-btn" class="button" style="background-color: #dc3545; color: white; border-color: #dc3545;">Xóa Toàn Bộ Dữ Liệu</button>
-            </div>
-            
-            <!-- Modal xác nhận xóa -->
-            <div id="iqx-ai-delete-modal" style="display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
-                <div style="background-color: #fff; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 400px; border-radius: 5px;">
-                    <h3>Xác nhận xóa dữ liệu</h3>
-                    <p>Bạn có chắc chắn muốn xóa toàn bộ dữ liệu đã cào và log? Thao tác này không thể hoàn tác!</p>
-                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-                        <button id="iqx-ai-cancel-delete" class="button">Hủy</button>
-                        <button id="iqx-ai-confirm-delete" class="button" style="background-color: #dc3545; color: white; border-color: #dc3545;">Xác nhận xóa</button>
-                    </div>
-                </div>
-            </div>
-            
-            <script>
-            jQuery(document).ready(function($) {
-                // Hiển thị modal xác nhận khi nhấn nút xóa
-                $('#iqx-ai-delete-data-btn').on('click', function() {
-                    $('#iqx-ai-delete-modal').show();
-                });
-                
-                // Đóng modal khi nhấn nút hủy
-                $('#iqx-ai-cancel-delete').on('click', function() {
-                    $('#iqx-ai-delete-modal').hide();
-                });
-                
-                // Xử lý khi nhấn nút xác nhận xóa
-                $('#iqx-ai-confirm-delete').on('click', function() {
-                    // Hiển thị thông báo đang xử lý
-                    $(this).prop('disabled', true).text('Đang xóa...');
-                    
-                    // Gửi AJAX request để xóa dữ liệu
-                    $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'iqx_ai_delete_all_data',
-                            nonce: '<?php echo wp_create_nonce('iqx_ai_delete_all_data'); ?>'
-                        },
-                        success: function(response) {
-                            $('#iqx-ai-delete-modal').hide();
-                            
-                            if (response.success) {
-                                // Hiển thị thông báo thành công
-                                $('<div class="notice notice-success is-dismissible"><p>' + response.data + '</p></div>')
-                                    .insertAfter('.iqx-ai-danger-zone');
-                            } else {
-                                // Hiển thị thông báo lỗi
-                                $('<div class="notice notice-error is-dismissible"><p>' + response.data + '</p></div>')
-                                    .insertAfter('.iqx-ai-danger-zone');
-                            }
-                            
-                            // Reset nút xác nhận
-                            $('#iqx-ai-confirm-delete').prop('disabled', false).text('Xác nhận xóa');
-                        },
-                        error: function() {
-                            $('#iqx-ai-delete-modal').hide();
-                            
-                            // Hiển thị thông báo lỗi
-                            $('<div class="notice notice-error is-dismissible"><p>Có lỗi xảy ra khi kết nối đến máy chủ</p></div>')
-                                .insertAfter('.iqx-ai-danger-zone');
-                            
-                            // Reset nút xác nhận
-                            $('#iqx-ai-confirm-delete').prop('disabled', false).text('Xác nhận xóa');
-                        }
-                    });
-                });
-            });
-            </script>
         </div>
         <?php
     }
@@ -1181,10 +1080,26 @@ class IQX_AI_Admin {
         // Get settings
         $settings = get_option('iqx_ai_settings', array());
         
+        // Add source attribution at the end of the article content
+        $content_with_source = $article['article_rewritten'];
+        
+        // Check if we have a source to attribute
+        if (!empty($article['source']) && !empty($article['article_url'])) {
+            $source_attribution = "\n\n<div class=\"iqx-source-attribution\">";
+            $source_attribution .= "<hr>";
+            $source_attribution .= "<p><small>Nguồn: <a href=\"" . esc_url($article['article_url']) . "\" target=\"_blank\" rel=\"nofollow\">" . esc_html($article['source']) . "</a></small></p>";
+            $source_attribution .= "</div>";
+            
+            $content_with_source .= $source_attribution;
+        }
+        
+        // Use SEO title if available, otherwise use the original title
+        $post_title = !empty($article['seo_title']) ? $article['seo_title'] : $article['article_title'];
+        
         // Create the post
         $post_data = array(
-            'post_title'   => $article['article_title'],
-            'post_content' => $article['article_rewritten'],
+            'post_title'   => $post_title,
+            'post_content' => $content_with_source,
             'post_status'  => !empty($settings['post_status']) ? $settings['post_status'] : 'draft',
             'post_author'  => !empty($settings['post_author']) ? $settings['post_author'] : 1,
             'post_type'    => 'post',
@@ -1209,40 +1124,235 @@ class IQX_AI_Admin {
     }
 
     /**
-     * AJAX handler for deleting all data
+     * AJAX handler for rewriting SEO title
      *
      * @since    1.0.0
      */
-    public function ajax_delete_all_data() {
+    public function ajax_rewrite_seo_title() {
         // Check nonce
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'iqx_ai_delete_all_data')) {
-            wp_send_json_error('Lỗi bảo mật: Nonce không hợp lệ');
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'iqx_ai_rewrite_seo_title')) {
+            wp_send_json_error('Invalid nonce');
         }
         
-        // Check user capabilities
+        // Check permissions
         if (!current_user_can('manage_options')) {
-            wp_send_json_error('Lỗi quyền truy cập: Bạn không có quyền thực hiện thao tác này');
+            wp_send_json_error('Insufficient permissions');
         }
         
-        // Delete all data
-        $result = $this->db->delete_all_data();
-        
-        if ($result) {
-            // Xóa file logs
-            $log_file = IQX_AI_PLUGIN_DIR . 'logs/scraper.log';
-            if (file_exists($log_file)) {
-                @unlink($log_file);
-            }
-            
-            // Xóa các file debug
-            $debug_files = glob(IQX_AI_PLUGIN_DIR . 'logs/debug_*.txt');
-            foreach ($debug_files as $file) {
-                @unlink($file);
-            }
-            
-            wp_send_json_success('Đã xóa toàn bộ dữ liệu thành công');
-        } else {
-            wp_send_json_error('Có lỗi xảy ra khi xóa dữ liệu');
+        // Check article ID
+        if (!isset($_POST['id']) || !is_numeric($_POST['id'])) {
+            wp_send_json_error('Invalid article ID');
         }
+        
+        // Get the article
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'iqx_ai_articles';
+        
+        $article = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM $table_name WHERE id = %d",
+                intval($_POST['id'])
+            ),
+            ARRAY_A
+        );
+        
+        if (!$article) {
+            wp_send_json_error('Article not found');
+        }
+        
+        // Rewrite the SEO title
+        $api = new IQX_AI_API();
+        $rewritten_title = $api->rewrite_seo_title($article['article_title']);
+        
+        if (!$rewritten_title) {
+            wp_send_json_error('Failed to rewrite SEO title');
+        }
+        
+                 // Update the article with SEO title
+         $this->db->update_article($article['id'], $article['article_rewritten'], $article['wp_post_id'], $rewritten_title);
+         
+         // If this article has a WordPress post, update its title
+         if (!empty($article['wp_post_id'])) {
+             $post_id = $article['wp_post_id'];
+             wp_update_post(array(
+                 'ID' => $post_id,
+                 'post_title' => $rewritten_title
+             ));
+         }
+         
+         wp_send_json_success(array(
+             'message' => 'Tiêu đề SEO đã được viết lại thành công',
+             'new_title' => $rewritten_title
+         ));
+    }
+
+         /**
+      * AJAX handler for deleting all data
+      *
+      * @since    1.0.0
+      */
+     public function ajax_delete_all_data() {
+         // Check nonce
+         if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'iqx_ai_delete_all_data')) {
+             wp_send_json_error('Invalid nonce');
+         }
+         
+         // Check permissions
+         if (!current_user_can('manage_options')) {
+             wp_send_json_error('Insufficient permissions');
+         }
+         
+         // Get the option to delete posts as well
+         $delete_posts = isset($_POST['delete_posts']) && $_POST['delete_posts'] === 'true';
+         
+         // Delete all data
+         $count = $this->db->delete_all_articles($delete_posts);
+         
+         wp_send_json_success(array(
+             'message' => 'Đã xóa thành công tất cả dữ liệu',
+             'count' => $count
+         ));
+     }
+
+    /**
+     * Display the bulk actions page
+     *
+     * @since    1.0.0
+     */
+    public function display_bulk_actions_page() {
+        ?>
+        <div class="wrap">
+            <h1>Thao tác hàng loạt IQX AI</h1>
+            
+            <div class="iqx-ai-bulk-actions">
+                <div class="iqx-ai-card">
+                    <h2>Xóa toàn bộ dữ liệu</h2>
+                    <p>Thao tác này sẽ xóa tất cả dữ liệu đã cào về từ các nguồn. Hành động này không thể hoàn tác.</p>
+                    
+                    <div class="iqx-ai-settings-field">
+                        <label>
+                            <input type="checkbox" id="iqx-ai-delete-posts" value="1">
+                            Đồng thời xóa các bài viết WordPress đã tạo
+                        </label>
+                        <p class="description">Chọn tùy chọn này nếu bạn cũng muốn xóa các bài viết WordPress đã được tạo từ dữ liệu.</p>
+                    </div>
+                    
+                    <button id="iqx-ai-delete-all" class="button button-danger">Xóa toàn bộ dữ liệu</button>
+                    <div id="iqx-ai-delete-result" class="iqx-ai-result" style="display: none;"></div>
+                </div>
+                
+                <div class="iqx-ai-card">
+                    <h2>Viết lại tiêu đề SEO hàng loạt</h2>
+                    <p>Thao tác này sẽ sử dụng AI để viết lại tiêu đề SEO cho tất cả các bài viết đã được cào về.</p>
+                    <p>Quá trình này có thể mất nhiều thời gian, tùy thuộc vào số lượng bài viết.</p>
+                    
+                    <button id="iqx-ai-rewrite-titles" class="button button-primary">Viết lại tất cả tiêu đề</button>
+                    <div id="iqx-ai-rewrite-result" class="iqx-ai-result" style="display: none;"></div>
+                </div>
+            </div>
+            
+            <script>
+                jQuery(document).ready(function($) {
+                    // Delete all data
+                    $('#iqx-ai-delete-all').on('click', function() {
+                        if (!confirm('Bạn có chắc chắn muốn xóa tất cả dữ liệu? Hành động này không thể hoàn tác.')) {
+                            return;
+                        }
+                        
+                        var button = $(this);
+                        var resultBox = $('#iqx-ai-delete-result');
+                        var deletePosts = $('#iqx-ai-delete-posts').is(':checked');
+                        
+                        button.prop('disabled', true);
+                        button.text('Đang xử lý...');
+                        resultBox.html('<p>Đang xóa dữ liệu...</p>').show();
+                        
+                        $.ajax({
+                            url: ajaxurl,
+                            type: 'POST',
+                            data: {
+                                action: 'iqx_ai_delete_all_data',
+                                delete_posts: deletePosts ? 'true' : 'false',
+                                nonce: '<?php echo wp_create_nonce('iqx_ai_delete_all_data'); ?>'
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    resultBox.html('<p class="iqx-ai-success">' + response.data.message + '</p>');
+                                } else {
+                                    resultBox.html('<p class="iqx-ai-error">Lỗi: ' + response.data + '</p>');
+                                }
+                                button.prop('disabled', false);
+                                button.text('Xóa toàn bộ dữ liệu');
+                            },
+                            error: function() {
+                                resultBox.html('<p class="iqx-ai-error">Đã xảy ra lỗi máy chủ.</p>');
+                                button.prop('disabled', false);
+                                button.text('Xóa toàn bộ dữ liệu');
+                            }
+                        });
+                    });
+                    
+                    // Rewrite all titles
+                    $('#iqx-ai-rewrite-titles').on('click', function() {
+                        alert('Tính năng này sẽ được triển khai trong phiên bản tiếp theo.');
+                    });
+                });
+            </script>
+            
+            <style>
+                .iqx-ai-bulk-actions {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 20px;
+                    margin-top: 20px;
+                }
+                
+                .iqx-ai-card {
+                    background: #fff;
+                    border: 1px solid #ccd0d4;
+                    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+                    padding: 20px;
+                    margin-bottom: 20px;
+                    min-width: 300px;
+                    flex: 1;
+                }
+                
+                .iqx-ai-card h2 {
+                    margin-top: 0;
+                }
+                
+                .iqx-ai-result {
+                    margin-top: 15px;
+                    padding: 10px;
+                    background: #f8f8f8;
+                    border-left: 4px solid #ccc;
+                }
+                
+                .iqx-ai-success {
+                    color: green;
+                }
+                
+                .iqx-ai-error {
+                    color: red;
+                }
+                
+                .button-danger {
+                    background: #dc3232;
+                    border-color: #dc3232;
+                    color: white;
+                }
+                
+                .button-danger:hover {
+                    background: #b32d2e;
+                    border-color: #b32d2e;
+                    color: white;
+                }
+                
+                .iqx-ai-settings-field {
+                    margin-bottom: 15px;
+                }
+            </style>
+        </div>
+        <?php
     }
 } 
