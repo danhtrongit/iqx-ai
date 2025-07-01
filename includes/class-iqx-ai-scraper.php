@@ -147,7 +147,10 @@ class IQX_AI_Scraper {
      */
     private function fetch_articles() {
         // Get the HTML content of the page
-        $response = wp_remote_get($this->target_url);
+        $response = wp_remote_get($this->target_url, array(
+            'timeout' => 30, // Tăng thời gian timeout
+            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36', // User agent để giả lập trình duyệt
+        ));
         
         if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
             $this->log_message('Failed to fetch article listings: ' . wp_remote_retrieve_response_message($response));
@@ -156,93 +159,99 @@ class IQX_AI_Scraper {
         
         $html = wp_remote_retrieve_body($response);
         
+        // Debug: Lưu HTML để phân tích
+        $debug_file = IQX_AI_PLUGIN_DIR . 'logs/debug_html.txt';
+        file_put_contents($debug_file, $html);
+        $this->log_message('Đã lưu HTML để debug vào file: ' . $debug_file);
+        
         // Load HTML with DOMDocument
         $dom = new DOMDocument();
         @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
         $xpath = new DOMXPath($dom);
         
         $articles = array();
+        $all_links = array();
         
         // Các bộ chọn XPath cụ thể cho bài viết trên cafef.vn
         $article_selectors = array(
-            // Bộ chọn cho các bài viết chính
+            // Bộ chọn chi tiết cho cafef.vn - thứ tự từ cụ thể đến tổng quát
             '//div[contains(@class, "box-content")]//a[contains(@class, "title")]',
-            '//h3[contains(@class, "title")]//a',
+            '//h3[contains(@class, "title")]/a',
+            '//h2[contains(@class, "title")]/a',
+            '//h1[contains(@class, "title")]/a',
             '//div[contains(@class, "list-news")]//a[@title]',
             '//div[contains(@class, "left-content")]//a[@title]',
-            '//h2[contains(@class, "news-item-title")]//a',
-            '//h3[contains(@class, "news-item-title")]//a',
-            '//div[contains(@class, "tlitem")]//a[contains(@class, "title")]'
+            '//h2[contains(@class, "news-item-title")]/a',
+            '//h3[contains(@class, "news-item-title")]/a',
+            '//div[contains(@class, "tlitem")]//a[contains(@class, "title")]',
+            '//div[contains(@class, "knswli-right")]//a',
+            '//ul[contains(@class, "list-news")]//a',
+            '//div[contains(@class, "top-content")]//a[@title]',
+            '//div[contains(@class, "featured")]//a[@title]',
+            '//div[contains(@class, "main-story")]//a',
+            '//div[contains(@class, "item")]//a[contains(@class, "title")]',
+            '//div[contains(@class, "box-category")]//a[@title]',
+            // Bộ chọn chung chung hơn - chỉ dùng khi các bộ chọn trên không tìm được gì
+            '//a[@title]',
+            '//a[contains(@href, ".chn")]'
         );
         
-        $article_nodes = null;
-        
-        // Thử từng bộ chọn cho đến khi tìm được bài viết
+        // Lấy tất cả các link từ các bộ chọn khác nhau
         foreach ($article_selectors as $selector) {
             $nodes = $xpath->query($selector);
+            $this->log_message("Bộ chọn '$selector': tìm thấy " . $nodes->length . " phần tử");
+            
             if ($nodes->length > 0) {
-                $article_nodes = $nodes;
-                break;
+                foreach ($nodes as $node) {
+                    $url = $node->getAttribute('href');
+                    $title = trim($node->textContent);
+                    
+                    // Bỏ qua các URL rỗng hoặc chỉ có dấu #
+                    if (empty($url) || $url == '#') {
+                        continue;
+                    }
+                    
+                    $all_links[] = array(
+                        'url' => $url,
+                        'title' => $title
+                    );
+                }
             }
         }
         
-        // Nếu không tìm thấy bài viết, dừng lại
-        if (!$article_nodes || $article_nodes->length === 0) {
-            $this->log_message('No articles found using the predefined selectors.');
-            return array();
-        }
+        // Ghi log số lượng link tìm thấy
+        $this->log_message('Tìm thấy tổng cộng ' . count($all_links) . ' link từ tất cả các bộ chọn');
         
-        // Danh sách từ khóa URL để loại trừ (không phải bài viết)
+        // Các từ khóa URL nên loại trừ (không phải bài viết)
         $exclude_keywords = array(
-            '/thi-truong-chung-khoan.chn', 
-            '/tin-nhanh-chung-khoan.chn',
-            '/video.chn',
-            '/tai-chinh-quoc-te.chn',
-            '/thoi-su.chn',
-            '/trang-chu',
-            '/sitemap',
-            '/tags/',
-            '/search/',
-            '/gui-bai-viet.chn',
             '/lien-he.chn',
             '/quang-cao.chn',
-            '/thu-vien-anh.chn',
-            '/chinh-sach-bao-mat.chn',
-            '/dieu-khoan-su-dung.chn',
-            '/ho-so.chn',
-            '/thanh-vien.chn',
-            '/dang-nhap.chn',
-            '/dang-ky.chn',
-            '.jpg',
-            '.png',
-            '.gif',
+            '/sitemap',
+            '/rss',
             '/ajax/',
             'facebook.com',
             'google.com',
             'twitter.com',
-            'instagram.com',
             'javascript:',
             '#',
-            '/tag/',
-            '/api/',
         );
         
-        // Mẫu URL bài viết hợp lệ trên cafef.vn (ví dụ: .../2025/...)
-        $valid_article_patterns = array(
-            '/\d{4}\/\d{1,2}\/\d{1,2}\//', // Định dạng URL có ngày tháng năm
-            '/-\d{8,}\.chn/', // Định dạng URL có ID bài viết
-            '/-\d{1,}\.html/', // Định dạng khác có ID bài viết
-            '/[a-z0-9-]{10,}\.chn/' // Định dạng bài viết thông thường
+        // Các từ khóa trong URL có thể chỉ ra đây là bài viết
+        $article_keywords = array(
+            'tin-tuc', 
+            'bai-viet', 
+            'news', 
+            'article', 
+            '-nd-',
+            '-id',
+            '.html',
+            '.chn'
         );
         
-        foreach ($article_nodes as $node) {
-            $url = $node->getAttribute('href');
-            $title = trim($node->textContent);
-            
-            // Bỏ qua các URL rỗng hoặc chỉ có dấu #
-            if (empty($url) || $url == '#') {
-                continue;
-            }
+        // Xử lý tất cả các link tìm thấy
+        foreach ($all_links as $item) {
+            $url = $item['url'];
+            $title = $item['title'];
             
             // Make sure URL is absolute
             if (strpos($url, 'http') !== 0) {
@@ -271,20 +280,21 @@ class IQX_AI_Scraper {
                 continue;
             }
             
-            // Kiểm tra URL có khớp với mẫu bài viết hợp lệ không
-            $is_valid_article = false;
-            foreach ($valid_article_patterns as $pattern) {
-                if (preg_match($pattern, $url)) {
-                    $is_valid_article = true;
+            // Kiểm tra URL có từ khóa của bài viết không
+            $is_article = false;
+            foreach ($article_keywords as $keyword) {
+                if (strpos($url, $keyword) !== false) {
+                    $is_article = true;
                     break;
                 }
             }
             
-            // Nếu URL không khớp với mẫu bài viết và cũng không có từ khóa rõ ràng như "tin-tuc", "bai-viet", "news"
-            if (!$is_valid_article && 
-                strpos($url, 'tin-tuc') === false && 
-                strpos($url, 'bai-viet') === false && 
-                strpos($url, 'news') === false) {
+            if (!$is_article) {
+                continue;
+            }
+            
+            // Kiểm tra tiêu đề bài viết có hợp lệ không
+            if (empty($title) || strlen($title) < 5 || strlen($title) > 300) {
                 continue;
             }
             
@@ -301,19 +311,24 @@ class IQX_AI_Scraper {
                 continue;
             }
             
-            // Kiểm tra tiêu đề bài viết có hợp lệ không (tránh các menu, nút điều hướng)
-            if (empty($title) || strlen($title) < 10 || strlen($title) > 200) {
-                continue;
-            }
-            
             $articles[] = array(
                 'url' => $url,
                 'title' => $title
             );
         }
         
-        // Log số lượng bài viết tìm thấy
-        $this->log_message('Found ' . count($articles) . ' valid articles.');
+        // Log số lượng bài viết hợp lệ đã tìm thấy
+        $this->log_message('Đã lọc ra ' . count($articles) . ' bài viết hợp lệ.');
+        
+        if (count($articles) > 0) {
+            // Log chi tiết các bài viết đã tìm thấy
+            $log_articles = array_slice($articles, 0, min(5, count($articles)));
+            foreach ($log_articles as $index => $article) {
+                $this->log_message("Bài viết #$index: " . $article['title'] . " - " . $article['url']);
+            }
+        } else {
+            $this->log_message('Không tìm thấy bài viết nào hợp lệ. Vui lòng kiểm tra lại bộ chọn XPath.');
+        }
         
         return $articles;
     }
