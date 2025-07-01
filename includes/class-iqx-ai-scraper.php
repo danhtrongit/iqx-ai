@@ -343,8 +343,8 @@ class IQX_AI_Scraper {
     private function fetch_article_content($url) {
         // Get the HTML content of the page
         $response = wp_remote_get($url, array(
-            'timeout' => 30, // Tăng thời gian chờ để đảm bảo tải được nội dung
-            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36' // User agent để giả lập trình duyệt
+            'timeout' => 30, // Tăng thời gian timeout
+            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36', // User agent để giả lập trình duyệt
         ));
         
         if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
@@ -354,116 +354,180 @@ class IQX_AI_Scraper {
         
         $html = wp_remote_retrieve_body($response);
         
+        // Debug: Lưu HTML để phân tích
+        $debug_file = IQX_AI_PLUGIN_DIR . 'logs/debug_article_' . md5($url) . '.txt';
+        file_put_contents($debug_file, $html);
+        $this->log_message('Đã lưu HTML bài viết để debug vào file: ' . $debug_file);
+        
         // Load HTML with DOMDocument
         $dom = new DOMDocument();
         @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
         $xpath = new DOMXPath($dom);
         
-        // Các bộ chọn tiêu đề bài viết CafeF
+        // Tìm tiêu đề bài viết
         $title_selectors = array(
             '//h1[contains(@class, "title")]',
             '//h1[contains(@class, "article-title")]',
+            '//h1[contains(@class, "article_title")]',
+            '//h1[contains(@class, "news-title")]',
             '//h1[contains(@class, "post-title")]',
-            '//div[contains(@class, "detail-content")]//h1',
-            '//div[contains(@class, "content")]//h1',
-            '//h1'
+            '//h1',
+            '//meta[@property="og:title"]/@content',
+            '//title'
         );
         
-        // Tìm tiêu đề
         $title = '';
         foreach ($title_selectors as $selector) {
-            $title_node = $xpath->query($selector)->item(0);
-            if ($title_node) {
-                $title = trim($title_node->textContent);
-                break;
-            }
-        }
-        
-        if (empty($title)) {
-            $this->log_message("Could not find article title for URL: $url");
-            return array();
-        }
-        
-        // Các bộ chọn nội dung bài viết CafeF
-        $content_selectors = array(
-            '//div[contains(@class, "detail-content")]',
-            '//div[contains(@id, "mainContent")]',
-            '//div[contains(@class, "content-detail")]',
-            '//div[contains(@class, "articleContent")]',
-            '//div[contains(@class, "post-content")]',
-            '//article[contains(@class, "content")]',
-            '//div[contains(@class, "content") and not(contains(@class, "box-content"))]'
-        );
-        
-        // Tìm nội dung
-        $content_node = null;
-        foreach ($content_selectors as $selector) {
-            $content_node = $xpath->query($selector)->item(0);
-            if ($content_node) {
-                break;
-            }
-        }
-        
-        if (!$content_node) {
-            $this->log_message("Could not find article content for URL: $url");
-            return array();
-        }
-        
-        // Loại bỏ các phần tử không mong muốn trong nội dung
-        $unwanted_elements = array(
-            '//script',
-            '//style',
-            '//iframe',
-            '//div[contains(@class, "banner")]',
-            '//div[contains(@class, "ads")]',
-            '//div[contains(@class, "advertisement")]',
-            '//div[contains(@class, "related")]',
-            '//div[contains(@class, "social")]',
-            '//div[contains(@class, "share")]',
-            '//div[contains(@class, "comment")]',
-            '//div[contains(@class, "tagging")]',
-            '//div[contains(@class, "tag-list")]',
-            '//ul[contains(@class, "tag")]'
-        );
-        
-        // Tạo một bản sao của nội dung để xử lý
-        $content_clone = $content_node->cloneNode(true);
-        
-        // Loại bỏ các phần tử không mong muốn
-        foreach ($unwanted_elements as $selector) {
-            $nodes_to_remove = $xpath->query($selector, $content_clone);
-            foreach ($nodes_to_remove as $node_to_remove) {
-                if ($node_to_remove->parentNode) {
-                    $node_to_remove->parentNode->removeChild($node_to_remove);
+            $nodes = $xpath->query($selector);
+            if ($nodes->length > 0) {
+                $title = trim($nodes->item(0)->textContent);
+                if (!empty($title)) {
+                    $this->log_message("Đã tìm thấy tiêu đề bài viết: $title (sử dụng bộ chọn: $selector)");
+                    break;
                 }
             }
         }
         
-        // Lấy HTML của nội dung đã làm sạch
+        // Không tìm thấy tiêu đề
+        if (empty($title)) {
+            $this->log_message('Không tìm thấy tiêu đề bài viết tại ' . $url);
+            return array();
+        }
+        
+        // Tìm nội dung bài viết
+        $content_selectors = array(
+            '//div[contains(@class, "detail-content")]',
+            '//div[contains(@class, "article-body")]',
+            '//div[contains(@class, "article_content")]',
+            '//div[contains(@class, "news-content")]',
+            '//div[contains(@class, "detail-content-news")]',
+            '//div[@id="mainContent"]',
+            '//article',
+            '//div[contains(@class, "content")]'
+        );
+        
         $content = '';
-        $children = $content_clone->childNodes;
-        
-        if ($children && $children->length > 0) {
-            foreach ($children as $child) {
-                $content .= $dom->saveHTML($child);
+        foreach ($content_selectors as $selector) {
+            $nodes = $xpath->query($selector);
+            if ($nodes->length > 0) {
+                // Lọc ra các thẻ không mong muốn
+                $node = $nodes->item(0);
+                $content_dom = new DOMDocument();
+                $content_dom->appendChild($content_dom->importNode($node, true));
+                
+                // Xóa các phần tử không mong muốn
+                $unwanted_selectors = array(
+                    '//script',
+                    '//style',
+                    '//iframe',
+                    '//div[contains(@class, "banner")]',
+                    '//div[contains(@class, "advertisement")]',
+                    '//div[contains(@class, "related")]',
+                    '//div[contains(@class, "comment")]',
+                    '//div[contains(@class, "social")]',
+                    '//div[contains(@class, "share")]',
+                    '//div[contains(@class, "author")]',
+                    '//div[contains(@class, "tags")]',
+                    '//div[contains(@class, "recommendation")]'
+                );
+                
+                $content_xpath = new DOMXPath($content_dom);
+                foreach ($unwanted_selectors as $unwanted_selector) {
+                    $unwanted_nodes = $content_xpath->query($unwanted_selector);
+                    foreach ($unwanted_nodes as $unwanted_node) {
+                        $unwanted_node->parentNode->removeChild($unwanted_node);
+                    }
+                }
+                
+                $content = trim($content_dom->saveHTML());
+                if (!empty($content)) {
+                    $this->log_message("Đã tìm thấy nội dung bài viết (sử dụng bộ chọn: $selector)");
+                    break;
+                }
             }
-        } else {
-            $content = $dom->saveHTML($content_clone);
         }
         
-        // Loại bỏ các thẻ rỗng và dọn dẹp nội dung
-        $content = preg_replace('/<p[^>]*>(\s|&nbsp;)*<\/p>/', '', $content);
-        $content = preg_replace('/<div[^>]*>(\s|&nbsp;)*<\/div>/', '', $content);
-        
-        // Kiểm tra xem nội dung có đủ dài không (tránh trường hợp lấy nhầm nội dung ngắn)
-        if (strlen(strip_tags($content)) < 100) {
-            $this->log_message("Article content seems too short (less than 100 chars): $url");
+        // Nếu không tìm thấy nội dung với bộ chọn cụ thể, thử phương pháp khác
+        if (empty($content)) {
+            $this->log_message('Thử phương pháp thay thế để lấy nội dung bài viết');
+            
+            // Lấy phần tử body
+            $body = $xpath->query('//body')->item(0);
+            if ($body) {
+                // Loại bỏ header, footer và các phần không liên quan
+                $unwanted_tags = array('header', 'footer', 'nav', 'aside', 'script', 'style', 'iframe');
+                foreach ($unwanted_tags as $tag) {
+                    $elements = $xpath->query('//' . $tag);
+                    foreach ($elements as $element) {
+                        if ($element->parentNode) {
+                            $element->parentNode->removeChild($element);
+                        }
+                    }
+                }
+                
+                // Tìm các đoạn văn bản dài
+                $paragraphs = $xpath->query('//p');
+                $article_content = '';
+                foreach ($paragraphs as $paragraph) {
+                    $text = trim($paragraph->textContent);
+                    if (strlen($text) > 100) {  // Đoạn văn có ít nhất 100 ký tự
+                        $article_content .= '<p>' . $text . '</p>';
+                    }
+                }
+                
+                if (!empty($article_content)) {
+                    $content = $article_content;
+                    $this->log_message('Đã trích xuất nội dung từ các đoạn văn bản dài');
+                }
+            }
         }
+        
+        // Không tìm thấy nội dung
+        if (empty($content)) {
+            $this->log_message('Không tìm thấy nội dung bài viết tại ' . $url);
+            return array();
+        }
+        
+        // Làm sạch nội dung
+        $content = $this->clean_content($content);
+        
+        // Log kích thước nội dung
+        $this->log_message('Kích thước nội dung: ' . strlen($content) . ' ký tự');
         
         return array(
             'title' => $title,
             'content' => $content
         );
+    }
+    
+    /**
+     * Clean HTML content
+     *
+     * @since    1.0.0
+     * @param    string    $content    HTML content to clean
+     * @return   string                Cleaned HTML content
+     */
+    private function clean_content($content) {
+        // Loại bỏ các đoạn script và style
+        $content = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', $content);
+        $content = preg_replace('/<style\b[^>]*>(.*?)<\/style>/is', '', $content);
+        
+        // Loại bỏ các thẻ HTML không mong muốn
+        $content = preg_replace('/<iframe\b[^>]*>(.*?)<\/iframe>/is', '', $content);
+        $content = preg_replace('/<object\b[^>]*>(.*?)<\/object>/is', '', $content);
+        $content = preg_replace('/<embed\b[^>]*>(.*?)<\/embed>/is', '', $content);
+        
+        // Loại bỏ các thuộc tính không cần thiết
+        $content = preg_replace('/\s(id|class|style|onclick|onload|data-[^\s=]*)="[^"]*"/i', '', $content);
+        
+        // Loại bỏ khoảng trắng thừa
+        $content = preg_replace('/\s+/', ' ', $content);
+        
+        // Loại bỏ các dòng trống
+        $content = preg_replace('/(<br\s*\/?>(\s*<br\s*\/?>)+)/', '<br />', $content);
+        $content = preg_replace('/^[\s\r\n]+|[\s\r\n]+$/m', '', $content);
+        
+        return $content;
     }
 
     /**
