@@ -181,4 +181,19 @@ class IQX_AI_DB {
             'total' => $total
         );
     }
+
+    /**
+     * Delete all data from the plugin's database table
+     *
+     * @since    1.0.0
+     * @return   bool     True on success, false on failure
+     */
+    public function delete_all_data() {
+        global $wpdb;
+        
+        // Truncate the table to remove all data
+        $result = $wpdb->query("TRUNCATE TABLE {$this->table_name}");
+        
+        return $result !== false;
+    }
 } 

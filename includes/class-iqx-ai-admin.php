@@ -44,6 +44,7 @@ class IQX_AI_Admin {
         add_action('wp_ajax_iqx_ai_run_scraper', array($this, 'ajax_run_scraper'));
         add_action('wp_ajax_iqx_ai_rewrite_article', array($this, 'ajax_rewrite_article'));
         add_action('wp_ajax_iqx_ai_create_post', array($this, 'ajax_create_post'));
+        add_action('wp_ajax_iqx_ai_delete_all_data', array($this, 'ajax_delete_all_data'));
     }
 
     /**
@@ -715,6 +716,81 @@ class IQX_AI_Admin {
                 </div>
                 <?php endif; ?>
             </form>
+            
+            <!-- Phần xóa dữ liệu -->
+            <div class="iqx-ai-danger-zone" style="margin-top: 50px; border: 1px solid #dc3545; padding: 20px; border-radius: 5px;">
+                <h2 style="color: #dc3545;">Khu vực nguy hiểm</h2>
+                <p>Xóa toàn bộ dữ liệu đã cào và log. <strong>Thao tác này không thể hoàn tác!</strong></p>
+                <button id="iqx-ai-delete-data-btn" class="button" style="background-color: #dc3545; color: white; border-color: #dc3545;">Xóa Toàn Bộ Dữ Liệu</button>
+            </div>
+            
+            <!-- Modal xác nhận xóa -->
+            <div id="iqx-ai-delete-modal" style="display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+                <div style="background-color: #fff; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 400px; border-radius: 5px;">
+                    <h3>Xác nhận xóa dữ liệu</h3>
+                    <p>Bạn có chắc chắn muốn xóa toàn bộ dữ liệu đã cào và log? Thao tác này không thể hoàn tác!</p>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                        <button id="iqx-ai-cancel-delete" class="button">Hủy</button>
+                        <button id="iqx-ai-confirm-delete" class="button" style="background-color: #dc3545; color: white; border-color: #dc3545;">Xác nhận xóa</button>
+                    </div>
+                </div>
+            </div>
+            
+            <script>
+            jQuery(document).ready(function($) {
+                // Hiển thị modal xác nhận khi nhấn nút xóa
+                $('#iqx-ai-delete-data-btn').on('click', function() {
+                    $('#iqx-ai-delete-modal').show();
+                });
+                
+                // Đóng modal khi nhấn nút hủy
+                $('#iqx-ai-cancel-delete').on('click', function() {
+                    $('#iqx-ai-delete-modal').hide();
+                });
+                
+                // Xử lý khi nhấn nút xác nhận xóa
+                $('#iqx-ai-confirm-delete').on('click', function() {
+                    // Hiển thị thông báo đang xử lý
+                    $(this).prop('disabled', true).text('Đang xóa...');
+                    
+                    // Gửi AJAX request để xóa dữ liệu
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'iqx_ai_delete_all_data',
+                            nonce: '<?php echo wp_create_nonce('iqx_ai_delete_all_data'); ?>'
+                        },
+                        success: function(response) {
+                            $('#iqx-ai-delete-modal').hide();
+                            
+                            if (response.success) {
+                                // Hiển thị thông báo thành công
+                                $('<div class="notice notice-success is-dismissible"><p>' + response.data + '</p></div>')
+                                    .insertAfter('.iqx-ai-danger-zone');
+                            } else {
+                                // Hiển thị thông báo lỗi
+                                $('<div class="notice notice-error is-dismissible"><p>' + response.data + '</p></div>')
+                                    .insertAfter('.iqx-ai-danger-zone');
+                            }
+                            
+                            // Reset nút xác nhận
+                            $('#iqx-ai-confirm-delete').prop('disabled', false).text('Xác nhận xóa');
+                        },
+                        error: function() {
+                            $('#iqx-ai-delete-modal').hide();
+                            
+                            // Hiển thị thông báo lỗi
+                            $('<div class="notice notice-error is-dismissible"><p>Có lỗi xảy ra khi kết nối đến máy chủ</p></div>')
+                                .insertAfter('.iqx-ai-danger-zone');
+                            
+                            // Reset nút xác nhận
+                            $('#iqx-ai-confirm-delete').prop('disabled', false).text('Xác nhận xóa');
+                        }
+                    });
+                });
+            });
+            </script>
         </div>
         <?php
     }
@@ -1057,5 +1133,43 @@ class IQX_AI_Admin {
         $this->db->update_article($article['id'], $article['article_rewritten'], $post_id);
         
         wp_send_json_success('Post created successfully');
+    }
+
+    /**
+     * AJAX handler for deleting all data
+     *
+     * @since    1.0.0
+     */
+    public function ajax_delete_all_data() {
+        // Check nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'iqx_ai_delete_all_data')) {
+            wp_send_json_error('Lỗi bảo mật: Nonce không hợp lệ');
+        }
+        
+        // Check user capabilities
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Lỗi quyền truy cập: Bạn không có quyền thực hiện thao tác này');
+        }
+        
+        // Delete all data
+        $result = $this->db->delete_all_data();
+        
+        if ($result) {
+            // Xóa file logs
+            $log_file = IQX_AI_PLUGIN_DIR . 'logs/scraper.log';
+            if (file_exists($log_file)) {
+                @unlink($log_file);
+            }
+            
+            // Xóa các file debug
+            $debug_files = glob(IQX_AI_PLUGIN_DIR . 'logs/debug_*.txt');
+            foreach ($debug_files as $file) {
+                @unlink($file);
+            }
+            
+            wp_send_json_success('Đã xóa toàn bộ dữ liệu thành công');
+        } else {
+            wp_send_json_error('Có lỗi xảy ra khi xóa dữ liệu');
+        }
     }
 } 
