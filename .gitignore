@@ -1,0 +1,61 @@
+# Logs
+logs/*.log
+
+# WordPress
+.htaccess
+wp-config.php
+
+# Thư mục vendor nếu sử dụng Composer
+/vendor/
+
+# Cache
+.cache/
+
+# File tạm thời của hệ thống
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# File backup của IDE và Editor
+*.bak
+*.backup
+*.tmp
+*.sublime-workspace
+.idea/
+.vscode/
+
+# File cấu hình local
+*.local.php
+local-config.php
+
+# File zip và các archive khác
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+
+# File build
+/build/
+/dist/
+/node_modules/
+
+# File debug
+debug.log
+
+# File mà người dùng có thể thay đổi
+/logs/*
+!/logs/.htaccess
+
+# Thư mục uploads nếu có
+/uploads/
+
+# Các file lớn hoặc file media nếu có
+*.mp4
+*.mov
+*.webm
+*.wav
+*.mp3
+*.flv 
