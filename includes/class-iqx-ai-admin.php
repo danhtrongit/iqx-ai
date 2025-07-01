@@ -265,12 +265,30 @@ class IQX_AI_Admin {
                     <h2>Hành động</h2>
                     <button id="iqx-ai-run-scraper" class="button button-primary">Chạy cào dữ liệu ngay</button>
                     <span id="iqx-ai-scraper-status"></span>
+                    
+                    <div class="iqx-ai-danger-actions" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+                        <h3 style="color: #dc3545;">Hành động nguy hiểm</h3>
+                        <button id="iqx-ai-dashboard-delete-data" class="button" style="background-color: #dc3545; color: white; border-color: #dc3545;">Xóa toàn bộ dữ liệu</button>
+                        <p><small>Thao tác này sẽ xóa toàn bộ dữ liệu đã cào và log. Không thể hoàn tác!</small></p>
+                    </div>
                 </div>
                 
                 <div class="iqx-ai-recent">
                     <h2>Bài viết gần đây</h2>
                     <?php $this->display_recent_articles(5); ?>
                     <p><a href="<?php echo admin_url('admin.php?page=iqx-ai-articles'); ?>" class="button">Xem tất cả bài viết</a></p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Modal xác nhận xóa -->
+        <div id="iqx-ai-delete-modal" style="display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+            <div style="background-color: #fff; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 400px; border-radius: 5px;">
+                <h3>Xác nhận xóa dữ liệu</h3>
+                <p>Bạn có chắc chắn muốn xóa toàn bộ dữ liệu đã cào và log? Thao tác này không thể hoàn tác!</p>
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                    <button id="iqx-ai-cancel-delete" class="button">Hủy</button>
+                    <button id="iqx-ai-confirm-delete" class="button" style="background-color: #dc3545; color: white; border-color: #dc3545;">Xác nhận xóa</button>
                 </div>
             </div>
         </div>
@@ -316,6 +334,10 @@ class IQX_AI_Admin {
             
             .iqx-ai-actions {
                 margin: 20px 0;
+                background: #fff;
+                border: 1px solid #ccc;
+                padding: 15px;
+                border-radius: 5px;
             }
             
             .iqx-ai-recent {
@@ -329,6 +351,7 @@ class IQX_AI_Admin {
         
         <script>
             jQuery(document).ready(function($) {
+                // Chạy cào dữ liệu
                 $('#iqx-ai-run-scraper').on('click', function() {
                     var button = $(this);
                     var status = $('#iqx-ai-scraper-status');
@@ -358,6 +381,56 @@ class IQX_AI_Admin {
                         },
                         complete: function() {
                             button.prop('disabled', false);
+                        }
+                    });
+                });
+                
+                // Xóa toàn bộ dữ liệu
+                $('#iqx-ai-dashboard-delete-data').on('click', function() {
+                    $('#iqx-ai-delete-modal').show();
+                });
+                
+                // Đóng modal khi nhấn nút hủy
+                $('#iqx-ai-cancel-delete').on('click', function() {
+                    $('#iqx-ai-delete-modal').hide();
+                });
+                
+                // Xử lý khi nhấn nút xác nhận xóa
+                $('#iqx-ai-confirm-delete').on('click', function() {
+                    // Hiển thị thông báo đang xử lý
+                    $(this).prop('disabled', true).text('Đang xóa...');
+                    
+                    // Gửi AJAX request để xóa dữ liệu
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'iqx_ai_delete_all_data',
+                            nonce: '<?php echo wp_create_nonce('iqx_ai_delete_all_data'); ?>'
+                        },
+                        success: function(response) {
+                            $('#iqx-ai-delete-modal').hide();
+                            
+                            if (response.success) {
+                                // Hiển thị thông báo thành công và reload trang
+                                alert(response.data);
+                                location.reload();
+                            } else {
+                                // Hiển thị thông báo lỗi
+                                alert('Lỗi: ' + response.data);
+                            }
+                            
+                            // Reset nút xác nhận
+                            $('#iqx-ai-confirm-delete').prop('disabled', false).text('Xác nhận xóa');
+                        },
+                        error: function() {
+                            $('#iqx-ai-delete-modal').hide();
+                            
+                            // Hiển thị thông báo lỗi
+                            alert('Có lỗi xảy ra khi kết nối đến máy chủ');
+                            
+                            // Reset nút xác nhận
+                            $('#iqx-ai-confirm-delete').prop('disabled', false).text('Xác nhận xóa');
                         }
                     });
                 });
