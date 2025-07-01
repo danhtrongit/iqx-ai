@@ -92,6 +92,11 @@ class IQX_AI_Scraper {
                 continue;
             }
             
+            // Kiểm tra toàn diện bài viết trước khi lưu
+            if (!$this->validate_article($full_article, $article['url'])) {
+                continue;
+            }
+            
             // Save the article to our database
             $article_id = $this->db->save_article(array(
                 'url' => $article['url'],
@@ -552,5 +557,71 @@ class IQX_AI_Scraper {
         
         // Nếu không có đủ dấu hiệu, coi như không phải trang bài viết
         return false;
+    }
+
+    /**
+     * Kiểm tra toàn diện bài viết trước khi lưu
+     *
+     * @since    1.0.0
+     * @param    array     $article    Mảng chứa thông tin bài viết
+     * @param    string    $url        URL của bài viết
+     * @return   bool                  True nếu bài viết hợp lệ, ngược lại false
+     */
+    private function validate_article($article, $url) {
+        // Kiểm tra tiêu đề
+        if (empty($article['title'])) {
+            $this->log_message("Article title is empty: $url");
+            return false;
+        }
+        
+        // Tiêu đề quá ngắn hoặc quá dài
+        if (strlen($article['title']) < 10 || strlen($article['title']) > 200) {
+            $this->log_message("Article title has invalid length (" . strlen($article['title']) . " chars): $url");
+            return false;
+        }
+        
+        // Kiểm tra nội dung
+        if (empty($article['content'])) {
+            $this->log_message("Article content is empty: $url");
+            return false;
+        }
+        
+        // Nội dung quá ngắn (dưới 200 ký tự)
+        $content_text = strip_tags($article['content']);
+        if (strlen($content_text) < 200) {
+            $this->log_message("Article content is too short (" . strlen($content_text) . " chars): $url");
+            return false;
+        }
+        
+        // Kiểm tra xem nội dung có phải HTML hợp lệ hay không
+        if (strpos($article['content'], '<') === false || strpos($article['content'], '>') === false) {
+            $this->log_message("Article content does not contain HTML tags: $url");
+            return false;
+        }
+        
+        // Kiểm tra các dấu hiệu của nội dung không phải bài viết
+        $spam_keywords = array(
+            'login', 'register', 'sign in', 'sign up', 'password', 'username',
+            'đăng nhập', 'đăng ký', 'mật khẩu', 'tên đăng nhập'
+        );
+        
+        foreach ($spam_keywords as $keyword) {
+            if (stripos($content_text, $keyword) !== false && strlen($content_text) < 1000) {
+                $this->log_message("Article content contains spam keyword '$keyword': $url");
+                return false;
+            }
+        }
+        
+        // Kiểm tra xem nội dung có quá nhiều liên kết hay không
+        $link_count = substr_count(strtolower($article['content']), '<a ');
+        $text_length = strlen($content_text);
+        
+        // Nếu mật độ liên kết quá cao (> 1 liên kết trên 100 ký tự)
+        if ($text_length > 0 && ($link_count / ($text_length / 100)) > 1) {
+            $this->log_message("Article content has too many links ($link_count links): $url");
+            return false;
+        }
+        
+        return true;
     }
 } 

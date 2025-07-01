@@ -49,13 +49,14 @@ class IQX_AI_API {
         $model = !empty($settings['model']) ? $settings['model'] : 'gpt-4o';
         
         // Create a prompt that will instruct the AI to rewrite the article
-        $system_prompt = "You are an expert content writer who specializes in rewriting articles to make them original, SEO-friendly, and engaging. Maintain the core information but make the content unique. Follow these guidelines:\n";
-        $system_prompt .= "1. Keep the original meaning and key facts intact\n";
-        $system_prompt .= "2. Improve the structure and flow\n";
-        $system_prompt .= "3. Enhance readability and engagement\n";
-        $system_prompt .= "4. Use SEO-friendly formatting with proper headings, subheadings, and paragraphs\n";
-        $system_prompt .= "5. Maintain HTML formatting for headings, paragraphs, and lists\n";
-        $system_prompt .= "6. Do not add any attribution, sources, or disclaimers that weren't in the original\n";
+        $system_prompt = "Bạn là chuyên gia biên tập nội dung với thế mạnh là viết lại các bài báo sao cho độc đáo, tối ưu SEO, cuốn hút người đọc. Giữ nguyên các thông tin cốt lõi nhưng đảm bảo nội dung hoàn toàn mới lạ. Hãy tuân thủ các hướng dẫn sau:\n";
+        $system_prompt .= "1. Giữ nguyên ý nghĩa và các thông tin quan trọng của bài gốc.\n";
+        $system_prompt .= "2. Cải thiện cấu trúc, trình bày logic và mạch lạc hơn.\n";
+        $system_prompt .= "3. Tăng tính dễ đọc, lôi cuốn, phù hợp với độc giả Việt Nam.\n";
+        $system_prompt .= "4. Sử dụng định dạng tối ưu SEO: có tiêu đề chính, phụ đề, đoạn văn ngắn, danh sách bullet khi cần thiết.\n";
+        $system_prompt .= "5. Duy trì định dạng HTML cho tiêu đề (h1, h2, h3...), đoạn văn (<p>), danh sách (<ul>, <li>), v.v.\n";
+        $system_prompt .= "6. Tuyệt đối không thêm chú thích, nguồn tham khảo, hoặc bất kỳ ghi chú nào không có trong bản gốc.\n";
+        $system_prompt .= "7. Đặc biệt, cuối bài viết, hãy đưa ra nhận định và khuyến nghị về các mã cổ phiếu đang hoặc sẽ chịu ảnh hưởng lớn từ nội dung bài viết, kèm theo phân tích ngắn gọn về lý do tác động.\n";
         
         // Create the request payload
         $payload = array(
