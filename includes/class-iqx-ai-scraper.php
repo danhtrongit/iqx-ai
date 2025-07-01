@@ -48,95 +48,122 @@ class IQX_AI_Scraper {
     }
 
     /**
-     * Run the scraper process
+     * Run the article scraping, rewriting and posting process
      *
      * @since    1.0.0
      */
     public function run() {
+        // Tạo thư mục logs nếu chưa tồn tại
+        $logs_dir = IQX_AI_PLUGIN_DIR . 'logs';
+        if (!file_exists($logs_dir)) {
+            mkdir($logs_dir, 0755, true);
+        }
+        
+        $this->log_message('===== BẮT ĐẦU QUÁ TRÌNH TỰ ĐỘNG CÀO DỮ LIỆU =====');
+        $this->log_message('Thời gian bắt đầu: ' . current_time('mysql'));
+        
         // Get settings
         $settings = get_option('iqx_ai_settings', array());
         
-        // Check if scraping is enabled
-        if (empty($settings['enable_scraping']) || $settings['enable_scraping'] !== '1') {
-            $this->log_message('Scraping is disabled in settings.');
+        // Check if the target URL is set
+        if (empty($settings['target_url'])) {
+            $this->log_message('Lỗi: URL nguồn không được cấu hình');
             return;
         }
         
-        // Fetch articles
+        // Check if the API key and model are set
+        if (empty($settings['api_key']) || empty($settings['api_model'])) {
+            $this->log_message('Lỗi: API key hoặc model không được cấu hình');
+            return;
+        }
+        
+        // Set target URL
+        $this->target_url = esc_url($settings['target_url']);
+        $this->log_message('URL nguồn: ' . $this->target_url);
+        
+        // Get articles
+        $this->log_message('Đang tìm kiếm bài viết từ nguồn...');
         $articles = $this->fetch_articles();
         
         if (empty($articles)) {
-            $this->log_message('No articles found or error fetching articles.');
+            $this->log_message('Không tìm thấy bài viết nào từ nguồn. Vui lòng kiểm tra lại URL nguồn.');
             return;
         }
         
+        $this->log_message('Tìm thấy ' . count($articles) . ' bài viết tiềm năng. Đang xử lý...');
+        
+        // Initialize the API class
+        $api = new IQX_AI_API($settings['api_key'], $settings['api_model']);
+        
         // Process each article
-        foreach ($articles as $article) {
-            // Check if article already exists in our database
-            if ($this->db->article_exists($article['url'])) {
-                $this->log_message("Article already exists: {$article['url']}");
+        $processed_count = 0;
+        $success_count = 0;
+        
+        foreach ($articles as $article_info) {
+            $url = $article_info['url'];
+            $processed_count++;
+            
+            $this->log_message("Đang xử lý bài viết #$processed_count: {$article_info['title']} ($url)");
+            
+            // Check if the URL is an article page
+            if (!$this->is_article_page($url)) {
+                $this->log_message("Bỏ qua: URL không phải là trang bài viết: $url");
                 continue;
             }
             
-            // Kiểm tra xem URL có phải là trang bài viết hay không
-            if (!$this->is_article_page($article['url'])) {
-                $this->log_message("URL is not an article page: {$article['url']}");
+            // Fetch article content
+            $this->log_message("Đang trích xuất nội dung từ: $url");
+            $article = $this->fetch_article_content($url);
+            
+            if (empty($article)) {
+                $this->log_message("Bỏ qua: Không thể trích xuất nội dung từ: $url");
                 continue;
             }
             
-            // Get full article content
-            $full_article = $this->fetch_article_content($article['url']);
-            
-            if (empty($full_article) || empty($full_article['content'])) {
-                $this->log_message("Failed to fetch content for: {$article['url']}");
+            // Validate the article
+            if (!$this->validate_article($article, $url)) {
+                $this->log_message("Bỏ qua: Bài viết không đạt tiêu chí kiểm duyệt: $url");
                 continue;
             }
             
-            // Kiểm tra toàn diện bài viết trước khi lưu
-            if (!$this->validate_article($full_article, $article['url'])) {
+            // Rewrite article content with AI
+            $this->log_message("Đang gửi nội dung đến API AI để viết lại...");
+            $rewritten_content = $api->rewrite_content($article['content']);
+            
+            if (empty($rewritten_content)) {
+                $this->log_message("Lỗi: Không thể viết lại nội dung bài viết: $url");
                 continue;
             }
             
-            // Save the article to our database
-            $article_id = $this->db->save_article(array(
-                'url' => $article['url'],
-                'title' => $full_article['title'],
-                'content' => $full_article['content'],
-                'source' => 'cafef'
-            ));
+            $this->log_message("Đã nhận nội dung viết lại từ API AI. Kích thước: " . strlen($rewritten_content) . " ký tự");
             
-            $this->log_message("Saved article: {$article['url']} with ID: {$article_id}");
+            // Create post
+            $post_id = $this->create_post($article['title'], $rewritten_content);
             
-            // Send to API for rewriting if we have API credentials
-            if (!empty($settings['api_token'])) {
-                $rewritten = $this->api->rewrite_article($full_article['title'], $full_article['content']);
-                
-                if ($rewritten) {
-                    $this->db->update_article($article_id, $rewritten);
-                    $this->log_message("Rewritten article ID: {$article_id}");
-                    
-                    // Create WordPress post if auto-publishing is enabled
-                    if (!empty($settings['auto_publish']) && $settings['auto_publish'] === '1') {
-                        $post_id = $this->create_post($full_article['title'], $rewritten);
-                        if ($post_id) {
-                            $this->db->update_article($article_id, $rewritten, $post_id);
-                            $this->log_message("Created post ID: {$post_id} for article ID: {$article_id}");
-                        }
-                    }
-                } else {
-                    $this->log_message("Failed to rewrite article ID: {$article_id}");
-                }
+            if ($post_id) {
+                $success_count++;
+                $post_edit_link = admin_url('post.php?post=' . $post_id . '&action=edit');
+                $this->log_message("Thành công: Đã tạo bài viết mới (ID: $post_id): $post_edit_link");
+            } else {
+                $this->log_message("Lỗi: Không thể tạo bài viết từ: $url");
             }
             
             // Respect the scraping limit
             $limit = !empty($settings['scraping_limit']) ? intval($settings['scraping_limit']) : 5;
-            if (--$limit <= 0) {
+            if ($success_count >= $limit) {
+                $this->log_message("Đã đạt giới hạn số bài viết cần lấy ($limit bài). Dừng quá trình.");
                 break;
             }
             
             // Add a small delay between requests to avoid overloading the server
-            sleep(2);
+            $this->log_message("Chờ 3 giây trước khi xử lý bài viết tiếp theo...");
+            sleep(3);
         }
+        
+        $this->log_message("===== KẾT THÚC QUÁ TRÌNH TỰ ĐỘNG CÀO DỮ LIỆU =====");
+        $this->log_message("Thời gian kết thúc: " . current_time('mysql'));
+        $this->log_message("Tổng số bài viết đã xử lý: $processed_count");
+        $this->log_message("Số bài viết đã tạo thành công: $success_count");
     }
 
     /**
@@ -581,60 +608,106 @@ class IQX_AI_Scraper {
     }
 
     /**
-     * Kiểm tra xem một URL có phải là trang bài viết hay không
+     * Check if the URL is an article page
      *
      * @since    1.0.0
-     * @param    string    $url    URL cần kiểm tra
-     * @return   bool              True nếu là trang bài viết, ngược lại false
+     * @param    string    $url    The URL to check
+     * @return   boolean           True if the URL is an article page, false otherwise
      */
     private function is_article_page($url) {
-        // Danh sách các mẫu URL bài viết hợp lệ trên cafef.vn
-        $valid_article_patterns = array(
-            '/\d{4}\/\d{1,2}\/\d{1,2}\//', // Định dạng URL có ngày tháng năm
-            '/-\d{8,}\.chn/', // Định dạng URL có ID bài viết
-            '/-\d{1,}\.html/', // Định dạng khác có ID bài viết
-            '/[a-z0-9-]{10,}\.chn/' // Định dạng bài viết thông thường
+        // Kiểm tra URL có thuộc về cafef.vn không
+        if (strpos($url, 'cafef.vn') === false) {
+            $this->log_message("URL không thuộc cafef.vn: $url");
+            return false;
+        }
+        
+        // Các URL cần loại trừ (không phải trang bài viết)
+        $exclude_patterns = array(
+            '/trang-chu',
+            '/lien-he',
+            '/quang-cao',
+            '/sitemap',
+            '/rss',
+            '/tim-kiem',
+            '/ajax/',
+            '/api/',
+            '/tag/',
+            '/tags/',
+            '/search/',
+            '/login/',
+            '/register/',
+            '/dang-nhap',
+            '/dang-ky',
+            '.jpg',
+            '.png',
+            '.gif',
+            '.mp4',
+            '.pdf',
+            'facebook.com',
+            'google.com',
+            'twitter.com',
+            'javascript:'
         );
         
-        // Kiểm tra URL có khớp với mẫu bài viết hợp lệ không
-        foreach ($valid_article_patterns as $pattern) {
+        // Kiểm tra có trong danh sách loại trừ không
+        foreach ($exclude_patterns as $pattern) {
+            if (strpos($url, $pattern) !== false) {
+                $this->log_message("URL bị loại trừ theo mẫu '$pattern': $url");
+                return false;
+            }
+        }
+        
+        // Mẫu URL bài viết thông thường (chấp nhận nhiều mẫu hơn)
+        $article_patterns = array(
+            // Mẫu theo ngày tháng năm
+            '/\d{4}\/\d{1,2}\/\d{1,2}\//',
+            // Mẫu theo ID bài viết
+            '/-\d+\.chn/',
+            '/-\d+\.html/',
+            // Các mẫu bài viết thông thường
+            '/tin-tuc/',
+            '/bai-viet/',
+            '/news/',
+            '/article/',
+            '/[a-z0-9-]{10,}\.chn/',
+            '/[a-z0-9-]{10,}\.html/'
+        );
+        
+        // Kiểm tra có khớp với mẫu bài viết không
+        foreach ($article_patterns as $pattern) {
             if (preg_match($pattern, $url)) {
+                $this->log_message("URL khớp với mẫu bài viết '$pattern': $url");
                 return true;
             }
         }
         
-        // Các từ khóa trong URL có thể chỉ ra đây là bài viết
+        // Nếu không khớp với bất kỳ mẫu nào, kiểm tra thêm các dấu hiệu khác
         $article_keywords = array(
-            'tin-tuc', 'bai-viet', 'news', 'article', '-nd-'
+            'tin-tuc', 
+            'bai-viet', 
+            'news', 
+            'article', 
+            '-nd-',
+            '-id',
+            '.html',
+            '.chn'
         );
         
         foreach ($article_keywords as $keyword) {
             if (strpos($url, $keyword) !== false) {
+                $this->log_message("URL có chứa từ khóa bài viết '$keyword': $url");
                 return true;
             }
         }
         
-        // Nếu không khớp với bất kỳ mẫu nào, thực hiện kiểm tra nhanh nội dung trang
-        $response = wp_remote_get($url, array(
-            'timeout' => 10,
-            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36'
-        ));
-        
-        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        // Kiểm tra URL có quá ngắn không (có thể là trang chuyên mục)
+        $url_path = parse_url($url, PHP_URL_PATH);
+        if ($url_path && substr_count($url_path, '/') <= 1) {
+            $this->log_message("URL có thể là trang chuyên mục, không phải bài viết: $url");
             return false;
         }
         
-        $html = wp_remote_retrieve_body($response);
-        
-        // Kiểm tra các dấu hiệu của trang bài viết
-        if (strpos($html, 'detail-content') !== false || 
-            strpos($html, 'mainContent') !== false || 
-            strpos($html, 'post-content') !== false ||
-            strpos($html, 'articleContent') !== false) {
-            return true;
-        }
-        
-        // Nếu không có đủ dấu hiệu, coi như không phải trang bài viết
+        $this->log_message("URL không phù hợp với các tiêu chí bài viết: $url");
         return false;
     }
 
@@ -649,57 +722,80 @@ class IQX_AI_Scraper {
     private function validate_article($article, $url) {
         // Kiểm tra tiêu đề
         if (empty($article['title'])) {
-            $this->log_message("Article title is empty: $url");
+            $this->log_message("Tiêu đề bài viết trống: $url");
             return false;
         }
         
-        // Tiêu đề quá ngắn hoặc quá dài
-        if (strlen($article['title']) < 10 || strlen($article['title']) > 200) {
-            $this->log_message("Article title has invalid length (" . strlen($article['title']) . " chars): $url");
+        // Tiêu đề quá ngắn hoặc quá dài - nới lỏng điều kiện chiều dài
+        if (strlen($article['title']) < 5 || strlen($article['title']) > 300) {
+            $this->log_message("Tiêu đề bài viết có độ dài không hợp lệ (" . strlen($article['title']) . " ký tự): $url");
             return false;
         }
         
         // Kiểm tra nội dung
         if (empty($article['content'])) {
-            $this->log_message("Article content is empty: $url");
+            $this->log_message("Nội dung bài viết trống: $url");
             return false;
         }
         
-        // Nội dung quá ngắn (dưới 200 ký tự)
-        $content_text = strip_tags($article['content']);
-        if (strlen($content_text) < 200) {
-            $this->log_message("Article content is too short (" . strlen($content_text) . " chars): $url");
+        // Nội dung quá ngắn - nới lỏng điều kiện về độ dài
+        $content_length = strlen(strip_tags($article['content']));
+        if ($content_length < 100) {
+            $this->log_message("Nội dung bài viết quá ngắn (" . $content_length . " ký tự): $url");
             return false;
         }
         
-        // Kiểm tra xem nội dung có phải HTML hợp lệ hay không
-        if (strpos($article['content'], '<') === false || strpos($article['content'], '>') === false) {
-            $this->log_message("Article content does not contain HTML tags: $url");
-            return false;
-        }
-        
-        // Kiểm tra các dấu hiệu của nội dung không phải bài viết
-        $spam_keywords = array(
-            'login', 'register', 'sign in', 'sign up', 'password', 'username',
-            'đăng nhập', 'đăng ký', 'mật khẩu', 'tên đăng nhập'
-        );
-        
-        foreach ($spam_keywords as $keyword) {
-            if (stripos($content_text, $keyword) !== false && strlen($content_text) < 1000) {
-                $this->log_message("Article content contains spam keyword '$keyword': $url");
+        // Kiểm tra xem nội dung có chứa một số đoạn văn hợp lệ không
+        $paragraphs = substr_count($article['content'], '</p>');
+        if ($paragraphs < 2) {
+            $this->log_message("Nội dung bài viết không chứa đủ đoạn văn (chỉ có $paragraphs đoạn): $url");
+            // Không loại trừ ngay mà thử kiểm tra xem có dấu xuống dòng không
+            $line_breaks = substr_count($article['content'], "\n") + substr_count($article['content'], '<br');
+            if ($line_breaks < 3) {
+                $this->log_message("Nội dung bài viết không chứa đủ dòng (chỉ có $line_breaks dòng): $url");
                 return false;
             }
         }
         
-        // Kiểm tra xem nội dung có quá nhiều liên kết hay không
-        $link_count = substr_count(strtolower($article['content']), '<a ');
-        $text_length = strlen($content_text);
+        // Kiểm tra có phải nội dung quảng cáo không
+        $ad_keywords = array(
+            'quảng cáo', 
+            'liên hệ mua hàng', 
+            'hotline:', 
+            'mua ngay', 
+            'đặt hàng', 
+            'giảm giá',
+            'khuyến mãi',
+            'sale off'
+        );
         
-        // Nếu mật độ liên kết quá cao (> 1 liên kết trên 100 ký tự)
-        if ($text_length > 0 && ($link_count / ($text_length / 100)) > 1) {
-            $this->log_message("Article content has too many links ($link_count links): $url");
+        $content_lower = strtolower(strip_tags($article['content']));
+        $ad_keyword_count = 0;
+        foreach ($ad_keywords as $keyword) {
+            if (strpos($content_lower, $keyword) !== false) {
+                $ad_keyword_count++;
+            }
+        }
+        
+        // Nếu có quá nhiều từ khóa quảng cáo
+        if ($ad_keyword_count >= 3) {
+            $this->log_message("Nội dung bài viết có vẻ là quảng cáo ($ad_keyword_count từ khóa quảng cáo): $url");
             return false;
         }
+        
+        // Kiểm tra tỷ lệ nội dung có ý nghĩa (tránh trường hợp chỉ toàn link, thẻ HTML)
+        $text_content = strip_tags($article['content']);
+        $html_length = strlen($article['content']);
+        if ($html_length > 0) {
+            $text_ratio = strlen($text_content) / $html_length;
+            if ($text_ratio < 0.2) {
+                $this->log_message("Tỷ lệ văn bản/HTML quá thấp ($text_ratio): $url");
+                // Không loại trừ ngay, chỉ ghi log cảnh báo
+            }
+        }
+        
+        // Log thông tin chi tiết về bài viết hợp lệ để theo dõi
+        $this->log_message("Bài viết hợp lệ: {$article['title']} | Độ dài: $content_length ký tự | $paragraphs đoạn văn | URL: $url");
         
         return true;
     }

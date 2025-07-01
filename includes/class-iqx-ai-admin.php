@@ -577,19 +577,157 @@ class IQX_AI_Admin {
      * @since    1.0.0
      */
     public function display_settings_page() {
+        // Save settings if form is submitted
+        if (isset($_POST['iqx_ai_settings_submit'])) {
+            $this->save_settings();
+        }
+        
+        // Test scraper if button is clicked
+        if (isset($_POST['iqx_ai_test_scraper'])) {
+            $this->test_scraper();
+        }
+        
+        // Get current settings
+        $settings = get_option('iqx_ai_settings', array());
+        
+        // Get all users
+        $users = get_users(array('role__in' => array('administrator', 'editor', 'author')));
+        
+        // Get all categories
+        $categories = get_categories(array('hide_empty' => false));
+        
         ?>
         <div class="wrap">
-            <h1>Cài đặt IQX AI</h1>
+            <h1>IQX AI Settings</h1>
             
-            <form method="post" action="options.php">
-                <?php
-                settings_fields('iqx_ai_settings');
-                do_settings_sections('iqx-ai-settings');
-                submit_button();
-                ?>
+            <form method="post" action="">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="target_url">URL Nguồn (CafeF)</label></th>
+                        <td>
+                            <input type="url" name="target_url" id="target_url" class="regular-text"
+                                   value="<?php echo isset($settings['target_url']) ? esc_url($settings['target_url']) : ''; ?>" />
+                            <p class="description">URL trang web CafeF để lấy bài viết (ví dụ: https://cafef.vn/thoi-su.chn)</p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row"><label for="api_key">API Key (Yescale.io)</label></th>
+                        <td>
+                            <input type="password" name="api_key" id="api_key" class="regular-text"
+                                   value="<?php echo isset($settings['api_key']) ? esc_attr($settings['api_key']) : ''; ?>" />
+                            <p class="description">API key từ trang web yescale.io</p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row"><label for="api_model">API Model</label></th>
+                        <td>
+                            <input type="text" name="api_model" id="api_model" class="regular-text"
+                                   value="<?php echo isset($settings['api_model']) ? esc_attr($settings['api_model']) : 'gpt-4o-mini'; ?>" />
+                            <p class="description">Tên model AI sẽ sử dụng (ví dụ: gpt-4o-mini, gpt-4o, claude-3-haiku, claude-3-sonnet...)</p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row"><label for="scraping_interval">Tần suất cào dữ liệu</label></th>
+                        <td>
+                            <select name="scraping_interval" id="scraping_interval">
+                                <option value="hourly" <?php selected(isset($settings['scraping_interval']) ? $settings['scraping_interval'] : 'daily', 'hourly'); ?>>Mỗi giờ</option>
+                                <option value="twicedaily" <?php selected(isset($settings['scraping_interval']) ? $settings['scraping_interval'] : 'daily', 'twicedaily'); ?>>Hai lần một ngày</option>
+                                <option value="daily" <?php selected(isset($settings['scraping_interval']) ? $settings['scraping_interval'] : 'daily', 'daily'); ?>>Mỗi ngày</option>
+                            </select>
+                            <p class="description">Tần suất tự động cào dữ liệu và đăng bài</p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row"><label for="scraping_limit">Số lượng bài viết</label></th>
+                        <td>
+                            <input type="number" name="scraping_limit" id="scraping_limit" class="small-text"
+                                   value="<?php echo isset($settings['scraping_limit']) ? intval($settings['scraping_limit']) : 5; ?>" min="1" max="50" />
+                            <p class="description">Số lượng bài viết sẽ cào trong mỗi lần chạy</p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row"><label for="post_status">Trạng thái bài viết</label></th>
+                        <td>
+                            <select name="post_status" id="post_status">
+                                <option value="publish" <?php selected(isset($settings['post_status']) ? $settings['post_status'] : 'draft', 'publish'); ?>>Xuất bản</option>
+                                <option value="draft" <?php selected(isset($settings['post_status']) ? $settings['post_status'] : 'draft', 'draft'); ?>>Bản nháp</option>
+                                <option value="pending" <?php selected(isset($settings['post_status']) ? $settings['post_status'] : 'draft', 'pending'); ?>>Chờ duyệt</option>
+                            </select>
+                            <p class="description">Trạng thái của bài viết sau khi tạo</p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row"><label for="post_author">Tác giả bài viết</label></th>
+                        <td>
+                            <select name="post_author" id="post_author">
+                                <?php foreach ($users as $user) : ?>
+                                <option value="<?php echo esc_attr($user->ID); ?>" <?php selected(isset($settings['post_author']) ? $settings['post_author'] : 1, $user->ID); ?>>
+                                    <?php echo esc_html($user->display_name); ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="description">Tác giả sẽ được gán cho các bài viết mới</p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row"><label for="post_category">Chuyên mục</label></th>
+                        <td>
+                            <select name="post_category" id="post_category">
+                                <option value="">Chuyên mục mặc định</option>
+                                <?php foreach ($categories as $category) : ?>
+                                <option value="<?php echo esc_attr($category->term_id); ?>" <?php selected(isset($settings['post_category']) ? $settings['post_category'] : '', $category->term_id); ?>>
+                                    <?php echo esc_html($category->name); ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="description">Chuyên mục sẽ được gán cho các bài viết mới</p>
+                        </td>
+                    </tr>
+                </table>
+                
+                <div class="submit-buttons" style="display: flex; gap: 10px; margin-top: 20px;">
+                    <p class="submit">
+                        <input type="submit" name="iqx_ai_settings_submit" class="button button-primary" value="Lưu Cài Đặt" />
+                    </p>
+                    
+                    <p class="submit">
+                        <input type="submit" name="iqx_ai_test_scraper" class="button button-secondary" value="Kiểm Tra Cào Dữ Liệu" />
+                    </p>
+                </div>
+                
+                <?php if (isset($_POST['iqx_ai_test_scraper'])) : ?>
+                <div class="notice notice-info">
+                    <p>Đang chạy quá trình cào dữ liệu. Vui lòng kiểm tra <a href="<?php echo esc_url(admin_url('admin.php?page=iqx_ai&action=view_log')); ?>">file log</a> để xem kết quả.</p>
+                </div>
+                <?php endif; ?>
+                
+                <?php if (isset($_GET['action']) && $_GET['action'] === 'view_log') : ?>
+                <div class="log-viewer" style="margin-top: 20px;">
+                    <h2>Nội dung file log:</h2>
+                    <textarea readonly style="width: 100%; height: 500px; font-family: monospace; font-size: 12px; white-space: pre;"><?php echo esc_textarea(file_exists(IQX_AI_PLUGIN_DIR . 'logs/scraper.log') ? file_get_contents(IQX_AI_PLUGIN_DIR . 'logs/scraper.log') : 'Không tìm thấy file log.'); ?></textarea>
+                </div>
+                <?php endif; ?>
             </form>
         </div>
         <?php
+    }
+    
+    /**
+     * Run the scraper process as a test
+     *
+     * @since    1.0.0
+     */
+    public function test_scraper() {
+        // Run the scraper
+        $scraper = new IQX_AI_Scraper();
+        $scraper->run();
     }
     
     /**
