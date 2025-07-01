@@ -1,0 +1,4 @@
+[2025-07-01 17:12:42] API request error: cURL error 28: Operation timed out after 60002 milliseconds with 0 bytes received
+[2025-07-01 17:14:34] API request error: cURL error 28: Operation timed out after 60001 milliseconds with 0 bytes received
+[2025-07-01 17:16:20] API request error: cURL error 28: Operation timed out after 60002 milliseconds with 0 bytes received
+[2025-07-01 17:19:32] API request error: cURL error 28: Operation timed out after 60002 milliseconds with 0 bytes received
