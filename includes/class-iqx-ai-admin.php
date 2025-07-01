@@ -649,6 +649,7 @@ class IQX_AI_Admin {
             <h1>IQX AI Settings</h1>
             
             <form method="post" action="">
+                <?php wp_nonce_field('iqx_ai_save_settings', 'iqx_ai_settings_nonce'); ?>
                 <table class="form-table">
                     <tr>
                         <th scope="row"><label for="target_url">URL Nguồn (CafeF)</label></th>
@@ -1354,5 +1355,39 @@ class IQX_AI_Admin {
             </style>
         </div>
         <?php
+    }
+
+    /**
+     * Save settings from the settings form
+     *
+     * @since    1.0.0
+     */
+    private function save_settings() {
+        // Check nonce field
+        if (!isset($_POST['iqx_ai_settings_nonce']) || !wp_verify_nonce($_POST['iqx_ai_settings_nonce'], 'iqx_ai_save_settings')) {
+            add_settings_error('iqx_ai_settings', 'settings_error', 'Lỗi xác thực. Vui lòng thử lại.', 'error');
+            return;
+        }
+        
+        // Get existing settings
+        $settings = get_option('iqx_ai_settings', array());
+        
+                 // Update settings from form data
+         $settings['target_url'] = isset($_POST['target_url']) ? esc_url_raw($_POST['target_url']) : '';
+         $settings['api_key'] = isset($_POST['api_key']) ? sanitize_text_field($_POST['api_key']) : '';
+         $settings['api_model'] = isset($_POST['api_model']) ? sanitize_text_field($_POST['api_model']) : 'gpt-4o';
+         $settings['enable_scraping'] = isset($_POST['enable_scraping']) ? '1' : '0';
+         $settings['scraping_interval'] = isset($_POST['scraping_interval']) ? sanitize_text_field($_POST['scraping_interval']) : 'daily';
+         $settings['scraping_limit'] = isset($_POST['scraping_limit']) ? absint($_POST['scraping_limit']) : 5;
+        $settings['auto_publish'] = isset($_POST['auto_publish']) ? '1' : '0';
+        $settings['post_status'] = isset($_POST['post_status']) ? sanitize_text_field($_POST['post_status']) : 'draft';
+        $settings['post_author'] = isset($_POST['post_author']) ? absint($_POST['post_author']) : 1;
+        $settings['post_category'] = isset($_POST['post_category']) ? sanitize_text_field($_POST['post_category']) : '';
+        
+        // Save updated settings
+        update_option('iqx_ai_settings', $settings);
+        
+        // Add success message
+        add_settings_error('iqx_ai_settings', 'settings_updated', 'Cài đặt đã được lưu thành công.', 'success');
     }
 } 
